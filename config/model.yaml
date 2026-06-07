@@ -1,0 +1,8 @@
+defaults: 
+- device: cuda
+- _self_
+
+model:
+  in_features: 10
+  hidden_features: 10
+  out_features: 10

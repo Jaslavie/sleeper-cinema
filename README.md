@@ -7,6 +7,26 @@ We detect "sleeper" movies that end up topping box-offices with a two-step appro
 1. Get the top-performing films by box office and **isolate anomalies**
 2. Run a simple algorithm on top of those anomalies to uncover hidden trends in success
 
+Definitionally, sleepers are not necessarily extra-ordinary films with extremely low budgets, rather they can exist as unremarkable/ordinary films on paper and still outperform its original expectations
+
+### Installation
+
+Create a virtual environment, then install the project dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+For editable development with test dependencies from `pyproject.toml`:
+
+```bash
+pip install -e ".[dev]"
+```
+
+### Measurment for anomalies
+
 ### Architecture
 
 Beforehand, we will construct the film attribution graph.
@@ -19,4 +39,5 @@ Beforehand, we will construct the film attribution graph.
 Related material, not necessarily implemented into this architecture.
 
 - [Credal Graph Neural Networks](https://arxiv.org/abs/2512.02722)
+- [Generative Semi-supervised Graph Anomaly Detection]()
 
