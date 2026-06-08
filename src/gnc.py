@@ -1,5 +1,7 @@
 """
-Graph Convolutional Network (GCN) based encoder
+Graph Convolutional Network (GCN) based encoder. Specifically, this combines independent features of 
+each movie and its relationship with neighbors. The resulting embeddings encode how a movie is semantically
+similar and dissimilar to its neighbors.
     - Input: Adjacency matrix A and feature matrix X
     - Output: Embedding matrix Z of each movie, updated weights
 """
@@ -13,6 +15,7 @@ class GCNEncoder(nn.Module):
 
         self.device = device
 
+        # Each convolution layer automatically updates weights during training
         self.fc1 = GCNConv(in_features, hidden_features)
         self.fc2 = GCNConv(hidden_features, out_features)
 

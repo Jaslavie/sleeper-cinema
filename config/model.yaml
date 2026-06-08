@@ -3,4 +3,17 @@ device: auto
 model:
   in_features: 10
   hidden_features: 10
-  out_features: 10
+  out_features: 64 # size of embedding for each movie
+
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  labeled_normal_rate: 0.15
+
+ggad:
+  beta: 1.0
+  lambda: 1.0
+  generated_outlier_ratio: 0.05
+  affinity_margin_alpha: 0.7
+  gaussian_mean: 0.01
+  gaussian_std: 0.005

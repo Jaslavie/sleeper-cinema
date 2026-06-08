@@ -4,6 +4,7 @@ from hydra import initialize, compose
 from src.gnc import GCNEncoder
 import torch
 import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
 
 from src.utils import resolve_device
 
@@ -25,6 +26,8 @@ def test_gnc_encoder(encoder):
     A = torch.randn(10, 10)
     X = torch.randn(10, 10)
     Z = encoder(A, X)
+
+    # 10 movies, embedding size of out_features each
     assert Z.shape == (10, encoder.out_features)
 
 def test_expected_movie_profile_similarity():

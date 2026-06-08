@@ -1,8 +1,8 @@
 # Anomaly detection model
 
-Anomaly detection is built from the **Variational Graph Encoder** architecture which takes in an adjacency matrix of nodes and their connections and a feature matrix of each movie as input.
+Anomaly detection is built from a **GCN encoder** (deliberately *not* variational) which takes in an adjacency matrix of nodes and their connections and a feature matrix of each movie as input.
 
-Specifically, we re-implement the **Generative Semi-supervised Graph Anomaly Detection**
+Specifically, we re-implement the **lowest-scope faithful version of Generative Semi-supervised Graph Anomaly Detection (GGAD)**: the GCN encoder plus the one component that actually defines the paper — outlier nodes shaped by two priors — with every optional extension stripped out.
 
 Original paper: [https://arxiv.org/html/2402.11887](https://arxiv.org/html/2402.11887)
 
@@ -21,7 +21,18 @@ We considered two graph-based architectures for detecting sleeper films:
 
 ## Input data contract
 
-Example `X` feature matrix: shape `N × F`, where each row is one film and each column is one model feature.
+The model is handed a single object holding three arrays. Training reads `Attributes` and `Network` for every node, but only computes loss over the `Label == 0` (normal) nodes.
+
+```text
+boxoffice.mat                           # full training data vehicle
+├─ Attributes : ndarray       [N × F]   # Feature matrix, where each film N gets feature vector F (X)         
+├─ Network    : sparse float  [N × N]   # Adjacency matrix (A)
+└─ Label      : ndarray int   [N]       # 0 = normal (trained on), 1 = anomaly/sleeper (eval only)
+```
+
+Each array is broken down below.
+
+Example `X` (`Attributes`) feature matrix: shape `N × F`, where each row is one film and each column is one model feature.
 
 ```text
 node_id  film        log_boxoffice  rating_R  vote_count  foreign_share  year  genre_horror  genre_scifi  genre_music_biopic  lang_en  country_us
@@ -41,6 +52,16 @@ Scream 7     1          1          1         0
 Michael      0          0          0         1
 ```
 
+Example `Label` vector: shape `N`, aligned to the same node order as `X` and `A`.
+
+```text
+node_id  film        label
+0        Backrooms   1        # anomaly — held out for evaluation
+1        Obsession   1        # anomaly
+2        Scream 7    0        # normal — used for training set
+3        Michael     0        # normal
+```
+
 ## Anomaly model architecture
 
 This section describes the model assuming the graph has already been built and handed to it. It walks from the structure of that input all the way to the final list of detected sleepers.
@@ -55,9 +76,9 @@ This section describes the model assuming the graph has already been built and h
   - It is a symmetric binary matrix with self-loops.
   - `A[i, j] = 1` when two films are profile-similar neighbors.
   - This lets each film be judged against similar films rather than the full catalog.
-- **Anomaly Label mask:** a subset of nodes are marked confidently normal.
+- **Normal-node mask:** a subset of nodes are marked confidently normal (the only labels used).
   - These are films whose box office matches expectation.
-  - This is the only supervision required by the semi-supervised setup.
+  - The adjacency is read at *training* time too, since the affinity prior compares each node to its real neighbors.
 
 **2. Graph encoder.** A GCN-style encoder consumes `A` and `X`
 
@@ -71,11 +92,13 @@ GCN(A, X)
 
 **3. Outlier (pseudo-anomaly) generation.** The model synthesizes fake anomaly nodes from labeled-normal embeddings.
 
-- Each generated outlier starts from a learnable transformation of averaged normal-neighbor representations.
-- The generator is shaped by two constraints:
+- Each generated outlier starts from a learnable transformation of averaged normal-neighbor representations (roughly one outlier per normal node).
+- The generator is shaped by two priors. The quality of generated outliers is controlled by:
   - **Egocentric closeness:** Gaussian perturbation keeps the outlier near the normal feature manifold.
+    - Ensures that outlier movies still look similar to normal movies so it's not totally random
   - **Asymmetric local affinity:** a margin penalty makes the outlier less similar to its neighbors than real normal nodes are.
-- The result is a set of synthetic nodes in the region where true anomalies would likely appear.
+    - Ensures that outlier movies do not fit as well to its neighbors as true normal movies do
+- Drop either prior and the outliers collapse to random noise, reducing GGAD to a generic one-class classifier — so these stay while variational latents and reconstruction heads do not.
 
 **4. Discriminative one-class head.** A classifier sits on top of the embeddings.
 

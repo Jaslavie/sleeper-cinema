@@ -1,10 +1,10 @@
 # Sleeper Cinema
 
-Inspired by the recent successes of low-budget/non-hollywood films "Backrooms" and "Obsession", we wanted to investigate Out-of-distribution box office hits and wether or not there were unseen patterns in their success.
+Inspired by the recent successes of low-budget/non-hollywood films "Backrooms" and "Obsession", we wanted to investigate Out-of-distribution box office hits and wether or not there were unseen patterns in their success. 
 
 We detect "sleeper" movies that end up topping box-offices with a two-step approach:
 
-1. Get the top-performing films by box office and **isolate anomalies**
+1. Get the top-performing films by box office and **isolate anomalies** (Generative Semi-supervised Graph Anomaly Detection Approach)
 2. Run a simple algorithm on top of those anomalies to uncover hidden trends in success
 
 Definitionally, sleepers are not necessarily extra-ordinary films with extremely low budgets, rather they can exist as unremarkable/ordinary films on paper and still outperform its original expectations
