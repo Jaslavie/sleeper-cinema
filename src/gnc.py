@@ -5,13 +5,16 @@ Graph Convolutional Network (GCN) based encoder
 """
 import torch.nn as nn
 import torch.nn.functional as F
+from torch_geometric.nn import GCNConv
 
 class GCNEncoder(nn.Module):
-    def __init__(self, in_features, hidden_features, out_features):
-        super(self).__init__()
+    def __init__(self, in_features, hidden_features, out_features, device):
+        super().__init__()
 
-        self.fc1 = nn.GCNConv(in_features, hidden_features)
-        self.fc2 = nn.GCNConv(hidden_features, out_features)
+        self.device = device
+
+        self.fc1 = GCNConv(in_features, hidden_features)
+        self.fc2 = GCNConv(hidden_features, out_features)
 
     def forward(self, A, X):
         """
@@ -22,7 +25,10 @@ class GCNEncoder(nn.Module):
         Returns:
             Z = N films x d embeddings
         """
-        # Create embeddings for all films simultaneously
+        # process embeddings on device
+        X = X.to(self.device)
+        A = A.to(self.device)
+
         Z = self.fc1(X, A) # (N, embedding_dim)
         Z = F.relu(Z)
 

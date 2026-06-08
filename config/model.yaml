@@ -1,6 +1,4 @@
-defaults: 
-- device: cuda
-- _self_
+device: auto
 
 model:
   in_features: 10
