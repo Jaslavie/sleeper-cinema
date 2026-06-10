@@ -33,3 +33,12 @@ dist/
 # OS files
 .DS_Store
 __pycache__
+
+# Misc
+.claude/
+autoresearch/
+
+# Logs
+wandb/
+checkpoints/
+outputs/

@@ -19,6 +19,7 @@ paths:
   latest_model: latest.pt
   best_model: best.pt
   epoch_model_pattern: epoch_{epoch:03d}.pt
+  ranked_output: ranked_movies.csv
 
 ggad:
   beta: 1.0

@@ -48,6 +48,12 @@ For editable development with test dependencies from `pyproject.toml`:
 pip install -e ".[dev]"
 ```
 
+To run training:
+
+```
+python src/train.py
+```
+
 ## Architecture
 
 Beforehand, we will construct the film attribution graph.

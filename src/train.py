@@ -10,14 +10,17 @@ import torch
 import torch.nn as nn
 import wandb
 from pathlib import Path
+from torch.utils.data import DataLoader, TensorDataset, Subset
 from torch.nn.utils.rnn import pad_sequence
 from omegaconf import DictConfig
 from hydra import initialize, compose
+import hydra
+# from sklearn.metrics import average_precision_score, roc_auc_score
 
 from src.gnc import GCNEncoder
 from src.outlier_generator import OutlierGenerator, compute_loss
 
-from src.utils import resolve_device
+from src.utils import resolve_device, load_processed_movie_data, load_graph
 
 class AnomalyClassifier(nn.Module):
     """
@@ -51,8 +54,6 @@ class GGAD(nn.Module):
             cfg.model.out_features,
             device,
             cfg.ggad.generated_outlier_ratio,
-            cfg.ggad.gaussian_mean,
-            cfg.ggad.gaussian_std,
         )
         self.classifier = AnomalyClassifier(
             cfg.model.out_features
@@ -73,8 +74,11 @@ class GGAD(nn.Module):
             for i in s_idx
         ]
         # Pad empty space in the batch dimension for nodes with no neighbors
+        # Note that the embed/mask will be the same for both normal and outlier neighbors
         H_outlier_neighbors = pad_sequence([H[idx] for idx in neighbor_idx], batch_first=True)
         outlier_neighbors_mask = pad_sequence([torch.ones(len(idx), device=H.device) for idx in neighbor_idx], batch_first=True)
+        H_normal_neighbors = H_outlier_neighbors
+        normal_neighbors_mask = outlier_neighbors_mask
 
         # Return classifier score
         logits = self.classifier(torch.cat([H_normal, H_outlier], dim=0))
@@ -85,12 +89,44 @@ class GGAD(nn.Module):
 
         return H, H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, s_idx, logits, labels
 
-
-
-def train(cfg, X, edge_index, graph, normal_mask, train_loader, val_loader):
+@hydra.main(version_base=None, config_path="../config", config_name="model")
+def train(cfg: DictConfig):
     # Basics
     device = resolve_device(cfg.device)
     wandb.init(project="sleeper-cinema-ggad", config=dict(cfg))
+    
+    # Initialize data
+    df, X, normal_mask = load_processed_movie_data(cfg.paths.csv_path, device)
+    graph = load_graph(cfg.paths.graph_path)
+    edge_index = torch.tensor(graph.get_edge_index(), dtype=torch.long, device=device).t().contiguous() # transpose to (2, E)
+    dataset = TensorDataset(torch.arange(len(df)))
+    
+    train_randomizer = torch.Generator().manual_seed(42)
+    val_randomizer = torch.Generator().manual_seed(43)
+
+    # Split training data by samples
+    num_movies = len(dataset)
+    train_size = int(0.80 * num_movies)
+    train_indices = list(range(train_size))
+    val_indices = list(range(train_size, num_movies))
+    train_idx = torch.tensor(train_indices, dtype=torch.long, device=device)
+    val_idx = torch.tensor(val_indices, dtype=torch.long, device=device)
+    train_normal_mask = torch.zeros_like(normal_mask)
+    val_normal_mask = torch.zeros_like(normal_mask)
+    train_normal_mask[train_idx] = normal_mask[train_idx]
+    val_normal_mask[val_idx] = normal_mask[val_idx]
+
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
+
+    train_loader = DataLoader(
+        train_dataset, cfg.training.batch_size, shuffle=True, drop_last=True, generator=train_randomizer
+    )
+    val_loader = DataLoader(
+        val_dataset, cfg.training.batch_size, shuffle=True, drop_last=True, generator=val_randomizer
+    )
+
+    print(f"training size: {train_size}, validation size: {num_movies - train_size}")
 
     # Model
     model = GGAD(cfg, device).to(device)
@@ -111,7 +147,7 @@ def train(cfg, X, edge_index, graph, normal_mask, train_loader, val_loader):
             
             # Pass through model
             H, H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, s_idx, logits, labels = model(
-                X, edge_index, graph, normal_mask
+                X, edge_index, graph, train_normal_mask
             )
 
             # Compute losses
@@ -149,7 +185,7 @@ def train(cfg, X, edge_index, graph, normal_mask, train_loader, val_loader):
             for batch in val_loader:
                 # Pass through model
                 H, H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, s_idx, logits, labels = model(
-                    X, edge_index, graph, normal_mask
+                    X, edge_index, graph, val_normal_mask
                 )
                 
                 # Compute losses
@@ -193,6 +229,12 @@ def train(cfg, X, edge_index, graph, normal_mask, train_loader, val_loader):
         wandb.log({
             "train/epoch_loss": avg_train_loss,
             "val/epoch_loss": avg_val_loss,
+            # TODO: Add anomaly metrics
+            # "val/anomaly_auroc": val_auroc,
+            # "val/anomaly_auprc": val_auprc,
             "batch_size": cfg.training.batch_size,
             "epoch": epoch,
         })
+
+if __name__ == "__main__":
+    train()
