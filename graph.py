@@ -1,5 +1,5 @@
 # Some of this code was reused from a previous project of mine -- Daniela
-
+# (Jasmine's Notes) Graph encodes the adjacency matrix (A) used to store neighbors to each node.
 from collections.abc import Iterable
 import pickle
 
@@ -31,7 +31,9 @@ class Graph:
 		return count // 2
 
 	def get_neighbors(self, node: int) -> Iterable[int]:
-		return self.neighbors[node]
+		# Return neighbors of a node or self if no neighbors
+		neighbors = list(self.neighbors[node])
+		return neighbors if neighbors else [node]
 
 	def add_node(self):
 		self.neighbors.append(set())

@@ -8,6 +8,24 @@ Original paper: [https://arxiv.org/html/2402.11887](https://arxiv.org/html/2402.
 
 > The key insight of GGAD is to **generate learnable outlier nodes in the feature representation space** that assimilate anomaly nodes in terms of both local structure affinity and feature representation
 
+## API Contract
+
+```text
+Input:
+  - Attributes : float [N × F] feature matrix X
+  - Network : sparse float [N × N] symmetric binary adjacency matrix A with self-loops
+  - Label : int [N], where 0 = normal training candidate and 1 = held-out known anomaly
+  - labeled_normal_rate : fraction of Label == 0 nodes sampled for training
+  - generated_outlier_ratio : number of synthetic outliers generated from labeled normals
+
+Output:
+  - anomaly_score : float [N], where score(i) = 1 - p_normal(i)
+  - ranked_films : list[(node_id, title, anomaly_score)]
+  - node_embedding : float [N × d], optional analysis output
+```
+
+GGAD outputs **anomaly scores**, not sleeper-success labels. Successful anomalies are filtered after ranking with box-office/ROI criteria.
+
 ## Model selection: dual-headed VGAE vs. GGAD
 
 We considered two graph-based architectures for detecting sleeper films:
@@ -19,7 +37,7 @@ We considered two graph-based architectures for detecting sleeper films:
   - **Data alignment**: GGAD also matches our data situation almost perfectly: it is a semi-supervised method designed for the case where we confidently know what "normal" looks like (the large mass of expected-performance films) and have only a handful of confirmed examples of the thing we are hunting (known sleepers like *Backrooms* and *Obsession*). 
   - **Architecturally**: It generates its outliers using two priors that fit our intuition about sleepers — that an anomaly is less similar to its neighbors than a normal film is (asymmetric local affinity), and that an anomaly can still look deceptively ordinary in its raw features (egocentric closeness) — which is exactly what a sleeper is: a film that looks unremarkable on paper yet behaves nothing like its peers at the box office.
 
-## Input data contract
+## Input data
 
 The model is handed a single object holding three arrays. Training reads `Attributes` and `Network` for every node, but only computes loss over the `Label == 0` (normal) nodes.
 
@@ -52,7 +70,7 @@ Scream 7     1          1          1         0
 Michael      0          0          0         1
 ```
 
-Example `Label` vector: shape `N`, aligned to the same node order as `X` and `A`.
+Example `Label` vector: shape `N`, aligned to the same node order as `X` and `A`. **Needs to be manually labeled**
 
 ```text
 node_id  film        label

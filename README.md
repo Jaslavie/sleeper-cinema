@@ -9,7 +9,30 @@ We detect "sleeper" movies that end up topping box-offices with a two-step appro
 
 Definitionally, sleepers are not necessarily extra-ordinary films with extremely low budgets, rather they can exist as unremarkable/ordinary films on paper and still outperform its original expectations
 
-### Installation
+## Dataset
+
+We keep a focused set of columns from the two source datasets, combined into a single dataset:
+
+**Dataset 1: `enhanced_box_office_data(2000-2024).csv`**
+
+- `Rank`: box-office rank within the dataset.
+- `Release Group`: movie title used as the film identifier.
+- `$Worldwide`: total worldwide box-office gross.
+- `$Domestic`: domestic box-office gross.
+- `Domestic %`: domestic share of worldwide gross.
+- `$Foreign`: international box-office gross.
+- `Foreign %`: international share of worldwide gross.
+- `Year`: release year.
+- `Genres`: movie genres for profile similarity.
+- `Rating`: audience rating score.
+- `Production_Countries`: production country metadata.
+
+**Dataset 2: `tmdb_5000_movies.csv`**
+
+- `budget`: reported production budget.
+- `production_companies`: production company metadata.
+
+## Installation
 
 Create a virtual environment, then install the project dependencies:
 
@@ -25,16 +48,14 @@ For editable development with test dependencies from `pyproject.toml`:
 pip install -e ".[dev]"
 ```
 
-### Measurment for anomalies
-
-### Architecture
+## Architecture
 
 Beforehand, we will construct the film attribution graph.
 
 1. **Anomaly detection**: We use a Variational Graph Autoencoder to learn the latent gaussian of each film and reconstructs the graph. Here, the films are the "nodes" while features like genre act as the "edges" connecting the nodes. We detect films that have a high reconstruction error, thus falling out of the success manifold.
 2. **Pattern recognition**: We use a simple HDBSCAN (Hierarchical Density-Based Spatial Clustering of Applications with Noise) Clustering approach to extract trend clusters from the VGAE latent embeddings.
 
-### References
+## References
 
 Related material, not necessarily implemented into this architecture.
 

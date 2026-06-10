@@ -26,17 +26,15 @@ class GCNEncoder(nn.Module):
             A = N films x N films adjacency matrix
 
         Returns:
-            Z = N films x d embeddings
+            H = N films x d embeddings
         """
         # process embeddings on device
-        X = X.to(self.device)
-        A = A.to(self.device)
+        X = X.to(self.device) # (N, features_dim)
+        A = A.to(self.device) # Graph
 
-        Z = self.fc1(X, A) # (N, embedding_dim)
-        Z = F.relu(Z)
+        H = self.fc1(X, A) # (N, embedding_dim)
+        H = F.relu(H)
+        H = F.dropout(H, p=0.5, training=self.training) # dropout during training only
+        H = self.fc2(H, A)
 
-        Z = F.dropout(Z, p=0.5)
-
-        Z = self.fc2(Z)
-
-        return Z
+        return H # (N, embedding_dim)
