@@ -43,3 +43,4 @@ wandb/
 checkpoints/
 outputs/
 *.log
+archive/

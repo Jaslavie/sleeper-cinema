@@ -1,7 +1,7 @@
 from omegaconf import DictConfig
 import pytest
 from hydra import initialize, compose
-from src.gnc import GCNEncoder
+from src.evals.ggad.gnc import GCNEncoder
 import torch
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
