@@ -3,8 +3,8 @@ As per the paper: "The goal of semi-supervised GAD is to learn an anomaly scorin
 Validation: model can label anomalies by finding scores that are greater than a threshold without ground truth labels for anomalies.
 Training: subset of labeled normal and outlier movies are fed into the model and trained to find the optimal scoring function.
 
-To run: 
-    python src/train.py
+To run (GGAD ablation — shows the GCN encoder is vestigial for this task):
+    PYTHONPATH=. python -m src.evals.ggad.train
 """
 import torch
 import torch.nn as nn
@@ -16,8 +16,8 @@ from omegaconf import DictConfig
 from hydra import initialize, compose
 import hydra
 
-from src.gnc import GCNEncoder
-from src.outlier_generator import OutlierGenerator, compute_loss
+from src.evals.ggad.gnc import GCNEncoder
+from src.evals.ggad.outlier_generator import OutlierGenerator, compute_loss
 
 from src.utils import resolve_device, load_processed_movie_data, load_graph
 from src.evaluate import run_evaluation, evaluate_final
@@ -58,7 +58,7 @@ class GGAD(nn.Module):
         self.classifier = AnomalyClassifier(
             cfg.model.out_features
         )
-    def forward(self, X, edge_index, graph, normal_mask):
+    def forward(self, X, edge_index, graph, normal_mask, anomaly_mask=None):
         # Encode all movies/nodes from relationships (edges) and features (X)
         H = self.encoder(edge_index, X)
 
@@ -67,7 +67,7 @@ class GGAD(nn.Module):
 
         # Mask out the outliers from the normal movies
         H_normal = H[s_idx]
-        
+
         # Get neighbors for each selected node
         neighbor_idx = [
             torch.tensor(graph.get_neighbors(int(i.item())), dtype=torch.long, device=H.device)
@@ -81,26 +81,35 @@ class GGAD(nn.Module):
         normal_neighbors_mask = outlier_neighbors_mask
 
         # Return classifier score
-        logits = self.classifier(torch.cat([H_normal, H_outlier], dim=0))
-        labels = torch.cat([
+        clf_inputs = [H_normal, H_outlier]
+        clf_labels = [
             torch.ones(len(H_normal), device=H.device), # label 1 = normal
-            torch.zeros(len(H_outlier), device=H.device)], # label 0 = outlier
-        )
+            torch.zeros(len(H_outlier), device=H.device)] # label 0 = outlier
+
+        # Supervision: real known sleepers (anomaly_mask) are added as label-0 examples so the
+        # classifier is oriented toward where true anomalies sit, not just the synthetic outliers.
+        if anomaly_mask is not None and anomaly_mask.any():
+            clf_inputs.append(H[anomaly_mask])
+            clf_labels.append(torch.zeros(int(anomaly_mask.sum()), device=H.device))
+
+        logits = self.classifier(torch.cat(clf_inputs, dim=0))
+        labels = torch.cat(clf_labels)
 
         return H, H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, s_idx, logits, labels
 
-@hydra.main(version_base=None, config_path="../config", config_name="model")
+@hydra.main(version_base=None, config_path="../../../config", config_name="model")
 def train(cfg: DictConfig):
     # Basics
     device = resolve_device(cfg.device)
     wandb.init(project="sleeper-cinema-ggad", config=dict(cfg))
-    
-    # Initialize data
-    df, X, normal_mask = load_processed_movie_data(cfg.paths.csv_path, device)
+
+    # Initialize data (post-release features are masked out; label is 1 for sleepers)
+    df, X, label = load_processed_movie_data(cfg.paths.csv_path, device)
+    normal_mask = label == 0
     graph = load_graph(cfg.paths.graph_path)
     edge_index = torch.tensor(graph.get_edge_index(), dtype=torch.long, device=device).t().contiguous() # transpose to (2, E)
     dataset = TensorDataset(torch.arange(len(df)))
-    
+
     train_randomizer = torch.Generator().manual_seed(42)
     val_randomizer = torch.Generator().manual_seed(43)
 
@@ -115,6 +124,10 @@ def train(cfg: DictConfig):
     val_normal_mask = torch.zeros_like(normal_mask)
     train_normal_mask[train_idx] = normal_mask[train_idx]
     val_normal_mask[val_idx] = normal_mask[val_idx]
+
+    # Known sleepers in the train split, used as supervised anomaly examples (held-out ones are never shown)
+    train_anomaly_mask = torch.zeros_like(normal_mask)
+    train_anomaly_mask[train_idx] = (label[train_idx] == 1)
 
     train_dataset = Subset(dataset, train_indices)
     val_dataset = Subset(dataset, val_indices)
@@ -139,30 +152,30 @@ def train(cfg: DictConfig):
         print(f"Epoch {epoch + 1}/{cfg.training.epochs} starting")
         train_loss = 0
         val_loss = 0
-        
+
         # Train loop
         model.train()
         for batch in train_loader:
             optimizer.zero_grad()
-            
-            # Pass through model
+
+            # Pass through model (with supervised sleepers from the train split)
             H, H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, s_idx, logits, labels = model(
-                X, edge_index, graph, train_normal_mask
+                X, edge_index, graph, train_normal_mask, train_anomaly_mask
             )
 
             # Compute losses
             bce_loss = bce_criterion(logits, labels)
             affinity_loss, ec_loss, bce_loss, total_prior_loss = compute_loss(
-                H_normal, 
-                H_normal_neighbors, 
-                H_outlier, 
-                H_outlier_neighbors, 
-                normal_neighbors_mask, 
-                outlier_neighbors_mask, 
-                cfg.ggad.affinity_margin_alpha, 
-                cfg.ggad.beta, 
-                cfg.ggad["lambda"], 
-                bce_loss, 
+                H_normal,
+                H_normal_neighbors,
+                H_outlier,
+                H_outlier_neighbors,
+                normal_neighbors_mask,
+                outlier_neighbors_mask,
+                cfg.ggad.affinity_margin_alpha,
+                cfg.ggad.beta,
+                cfg.ggad["lambda"],
+                bce_loss,
                 cfg.ggad.epsilon
             )
             train_loss += total_prior_loss.item()
@@ -178,7 +191,7 @@ def train(cfg: DictConfig):
                 "train/ec_loss": ec_loss.item(),
                 "train/total_prior_loss": total_prior_loss.item(),
             })
-        
+
         # Validation loop
         model.eval()
         with torch.no_grad():
@@ -187,14 +200,14 @@ def train(cfg: DictConfig):
                 H, H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, s_idx, logits, labels = model(
                     X, edge_index, graph, val_normal_mask
                 )
-                
+
                 # Compute losses
                 bce_loss = bce_criterion(logits, labels)
                 affinity_loss, ec_loss, bce_loss, total_prior_loss = compute_loss(
                     H_normal, H_normal_neighbors, H_outlier, H_outlier_neighbors, normal_neighbors_mask, outlier_neighbors_mask, cfg.ggad.affinity_margin_alpha, cfg.ggad.beta, cfg.ggad["lambda"], bce_loss, cfg.ggad.epsilon
                 )
                 val_loss += total_prior_loss.item()
-                
+
                 # Log losses
                 wandb.log({
                     "val/bce_loss": bce_loss.item(),
@@ -205,7 +218,20 @@ def train(cfg: DictConfig):
 
         avg_train_loss = train_loss / max(1, len(train_loader))
         avg_val_loss = val_loss / max(1, len(val_loader))
-        print(f"Epoch {epoch + 1}/{cfg.training.epochs} complete train_loss={avg_train_loss:.4f} val_loss={avg_val_loss:.4f}")
+
+        # Score every film and measure ranking quality on the held-out split
+        with torch.no_grad():
+            H = model.encoder(edge_index, X)
+            anomaly_score = 1 - torch.sigmoid(model.classifier(H)) # high score = likely sleeper
+            val_y_true = label[val_idx].cpu().numpy()
+            val_y_score = anomaly_score[val_idx].cpu().numpy()
+            val_auroc = roc_auc_score(val_y_true, val_y_score) if len(set(val_y_true)) > 1 else float("nan")
+            val_auprc = average_precision_score(val_y_true, val_y_score) if len(set(val_y_true)) > 1 else float("nan")
+            ranked = df[["Release Group", "Success"]].copy()
+            ranked["anomaly_score"] = anomaly_score.cpu().numpy()
+            ranked.sort_values("anomaly_score", ascending=False).to_csv(Path(cfg.paths.checkpoint_dir) / cfg.paths.ranked_output, index=False)
+
+        print(f"Epoch {epoch + 1}/{cfg.training.epochs} complete train_loss={avg_train_loss:.4f} val_loss={avg_val_loss:.4f} val_auroc={val_auroc:.4f} val_auprc={val_auprc:.4f}")
         checkpoint_payload = {
             "epoch": epoch,
             "model_state_dict": model.state_dict(),

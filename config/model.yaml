@@ -1,25 +1,34 @@
 device: auto
 
 model:
-  in_features: 72
+  in_features: 104   # pre-release features after post-release columns are masked out
   hidden_features: 64
   out_features: 64 # size of embedding for each movie
 
 training:
   optimizer: adam
-  learning_rate: 0.001
+  learning_rate: 0.005
   labeled_normal_rate: 0.15
   batch_size: 64
-  epochs: 10
+  epochs: 40
 
 paths:
   csv_path: processed_movie_data.csv
   graph_path: movie_graph-JACCARD-60.pkl
   checkpoint_dir: checkpoints
+  artifacts_dir: artifacts
   latest_model: latest.pt
   best_model: best.pt
   epoch_model_pattern: epoch_{epoch:03d}.pt
-  ranked_output: ranked_movies.csv
+
+crf:
+  gbm_lr: 0.02
+  gbm_leaves: 15
+  gbm_iters: 1000
+  gbm_l2: 3.0
+  mrf_beta: 2.0      # determines how much the mean field perturbs the unary score
+  mrf_iters: 30
+  val_frac: 0.20
 
 ggad:
   beta: 1.0
