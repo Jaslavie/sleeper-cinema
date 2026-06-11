@@ -1,0 +1,31 @@
+device: auto
+
+model:
+  in_features: 72
+  hidden_features: 64
+  out_features: 64 # size of embedding for each movie
+
+training:
+  optimizer: adam
+  learning_rate: 0.001
+  labeled_normal_rate: 0.15
+  batch_size: 64
+  epochs: 10
+
+paths:
+  csv_path: processed_movie_data.csv
+  graph_path: movie_graph-JACCARD-60.pkl
+  checkpoint_dir: checkpoints
+  latest_model: latest.pt
+  best_model: best.pt
+  epoch_model_pattern: epoch_{epoch:03d}.pt
+  ranked_output: ranked_movies.csv
+
+ggad:
+  beta: 1.0
+  lambda: 1.0
+  generated_outlier_ratio: 0.05
+  affinity_margin_alpha: 0.7
+  epsilon: 0.01
+  gaussian_mean: 0.01
+  gaussian_std: 0.005

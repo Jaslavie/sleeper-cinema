@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sleeper-cinema"
+version = "0.1.0"
+description = "Graph-based anomaly detection for sleeper box-office films."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.3",
+    "torch-geometric>=2.5",
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
