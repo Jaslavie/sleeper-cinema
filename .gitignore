@@ -42,3 +42,4 @@ autoresearch/
 wandb/
 checkpoints/
 outputs/
+*.log
