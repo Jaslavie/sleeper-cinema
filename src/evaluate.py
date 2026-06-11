@@ -7,7 +7,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+from collections import Counter
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score, roc_curve, precision_recall_curve, confusion_matrix
+
+from src.success_criteria import SUCCESS_QUANTILE
 
 
 def compute_anomaly_scores(model: nn.Module, X, edge_index) -> np.ndarray:
@@ -27,7 +31,7 @@ def compute_anomaly_scores(model: nn.Module, X, edge_index) -> np.ndarray:
 
     return (-full_logits).detach().cpu().numpy()
 
-def choose_threshold(y_true: np.ndarray, scores: np.ndarray, target_precision: float = 0.85) -> float:
+def choose_threshold(y_true: np.ndarray, scores: np.ndarray, val_idx=None) -> float:
     """
     Maximises F1 over thresholds that non-trivially split the data.
 
@@ -36,6 +40,8 @@ def choose_threshold(y_true: np.ndarray, scores: np.ndarray, target_precision: f
     Current fix: restrict candidates to thresholds within the actual score range
     that flag between 1%-99% of films, then pick the best F1 among those.
     """
+    if val_idx is not None:
+        y_true, scores = y_true[val_idx], scores[val_idx]
 
     precisions, recalls, thresholds = precision_recall_curve(y_true, scores)
     p = precisions[:-1]
@@ -54,8 +60,7 @@ def choose_threshold(y_true: np.ndarray, scores: np.ndarray, target_precision: f
     valid = in_range & non_trivial
 
     if not valid.any():
-        sleeper_rate = y_true.mean()
-        return float(np.percentile(scores, 100 * (1 - sleeper_rate)))
+        return float(np.percentile(scores, SUCCESS_QUANTILE * 100))
 
     best_idx = np.argmax(np.where(valid, f1_scores, -1))
     return float(thresholds[best_idx])
@@ -136,9 +141,8 @@ def run_evaluation(model, X, edge_index, df, val_indices, k_values = [10, 50, 10
     for k in k_values:
         metrics[f"precision_at_{k}"] = precision_at_k(val_y_true, val_scores, k)
 
-
-    best_threshold = choose_threshold(y_true, scores)
-    threshold_m = threshold_metrics(y_true, scores, best_threshold)
+    best_threshold = choose_threshold(y_true, scores, val_indices)
+    threshold_m = threshold_metrics(val_y_true, val_scores, best_threshold)
     for key, val in threshold_m.items():
         metrics[f"thresh/{key}"] = val
 
@@ -173,19 +177,21 @@ def _run_sanity_checks(ranked_df: pd.DataFrame, scores: np.ndarray, y_true: np.n
                 f"< overall mean {overall_mean_score:.3f}"
             )
  
-    # Check 2: Real sleepers should appear in the top 20% of scores 
-    sleeper_tail_threshold = np.percentile(scores, 80)
+    # Check 2: real sleepers should be in the top fraction of scores
+    tail = float(np.percentile(scores, SUCCESS_QUANTILE * 100))
     sleeper_scores = scores[y_true == 1]
-    sleeper_pct_in_top20 = float((sleeper_scores >= sleeper_tail_threshold).mean())
-    metrics["sanity/sleeper_pct_in_top20"] = sleeper_pct_in_top20
- 
-    if sleeper_pct_in_top20 < 0.50:
+    sleeper_pct_in_tail = float((sleeper_scores >= tail).mean())
+    metrics["sanity/sleeper_pct_in_top_decile"] = sleeper_pct_in_tail
+
+    # If the model misses over half of the sleepers, it is not doing well
+    if sleeper_pct_in_tail < 0.50:
         warnings.append(
-            f"SANITY FAIL — Only {sleeper_pct_in_top20:.1%} of real sleepers fall in the "
-            f"top-20% of scores (expected >50%). The model is missing many real sleepers."
+            f"SANITY FAIL — Only {sleeper_pct_in_tail:.1%} of real sleepers fall in the "
+            f"top-{100 * (1 - SUCCESS_QUANTILE):.0f}% of scores (expected >50%). "
+            f"The model is missing many real sleepers."
         )
     else:
-        print(f"Sleeper recall check passed: {sleeper_pct_in_top20:.1%} of sleepers in top-20% scores")
+        print(f"Sleeper recall check passed: {sleeper_pct_in_tail:.1%} of sleepers in top decile of scores")
  
     return metrics, warnings
 
@@ -209,17 +215,20 @@ def evaluate_final(model, X, edge_index, df, cfg, device) -> dict:
  
     scores = compute_anomaly_scores(model, X, edge_index)
     y_true = df["Success"].astype(int).to_numpy()
+    val_idx = np.arange(int(0.80 * len(df)), len(df))
+    y_val, s_val = y_true[val_idx], scores[val_idx]
     k_values = [10, 50, 100]
-    metrics = _compute_metrics(y_true, scores, k_values)
+    metrics = _compute_metrics(y_val, s_val, k_values)
     anomaly_rate = metrics["anomaly_rate"]
- 
+
     ranked_df = df.copy()
     ranked_df["anomaly_score"] = scores
- 
+
     best_threshold = metrics["thresh/threshold"]
     ranked_df["predicted_sleeper"] = (scores >= best_threshold).astype(int)
 
-    sanity_metrics, warnings = _run_sanity_checks(ranked_df, scores, y_true)
+    sanity_metrics, warnings = _run_sanity_checks(
+        ranked_df.iloc[val_idx], s_val, y_val)
     metrics.update(sanity_metrics)
 
     if warnings:
@@ -251,8 +260,8 @@ def evaluate_final(model, X, edge_index, df, cfg, device) -> dict:
         f"— {fn} real sleepers missed out of {tp+fn} total real sleepers"
     )
 
-    fpr, tpr, _ = roc_curve(y_true, scores)
-    prec, rec, _ = precision_recall_curve(y_true, scores)
+    fpr, tpr, _ = roc_curve(y_val, s_val)
+    prec, rec, _ = precision_recall_curve(y_val, s_val)
  
     fig, axes = plt.subplots(1, 4, figsize=(20, 4))
  
@@ -307,3 +316,44 @@ def evaluate_final(model, X, edge_index, df, cfg, device) -> dict:
     print(f"Ranked output saved to: {out_path}")
  
     return metrics
+
+
+# Misc evals
+def percentile_ranks(ranked_df, titles, title_col="Release Group"):
+    """Percentile rank (0-100, higher = more sleeper-like) of the named films in a ranked list."""
+    pct = {t.lower(): 100 * (1 - r / len(ranked_df)) for r, t in enumerate(ranked_df[title_col].str.lower())}
+    return {t: pct[t.lower()] for t in titles if t.lower() in pct}
+
+
+def feature_lift(df, tag_col, support, k, exclude=frozenset()):
+    """Top-k tags by lift = sleeper-rate / overall-rate, for tags in >= support films.
+    df needs a 'Success' column and a list-of-tags column tag_col."""
+    base = df["Success"].mean()
+    a = Counter(x for L in df[tag_col] for x in set(L) if x not in exclude)
+    s = Counter(x for L in df[df["Success"] == 1][tag_col] for x in set(L) if x not in exclude)
+    rows = [(t, a[t], (s.get(t, 0) / a[t]) / base) for t in a if a[t] >= support]
+    return pd.DataFrame(sorted(rows, key=lambda r: -r[2])[:k], columns=[tag_col, "n", "lift"])
+
+
+def linear_auroc(X, y, train_idx, val_idx):
+    """Held-out AUROC of a class-balanced logistic regression: the non-graph baseline."""
+    clf = LogisticRegression(max_iter=3000, class_weight="balanced").fit(X[train_idx], y[train_idx])
+    return roc_auc_score(y[val_idx], clf.predict_proba(X[val_idx])[:, 1])
+
+
+def ablation_model(X_masked, X_leaked, model_scores, y, train_idx, val_idx):
+    """AUROC of leaked features vs masked features vs the graph model's scores."""
+    return pd.DataFrame({
+        "setting": ["leaked (post-release)", "pre-release (masked)", "graph model"],
+        "AUROC": [linear_auroc(X_leaked, y, train_idx, val_idx),
+                  linear_auroc(X_masked, y, train_idx, val_idx),
+                  roc_auc_score(y[val_idx], model_scores[val_idx])],
+    })
+
+
+def ablation_datasize(X, y, train_idx, val_idx, fracs=(0.1, 0.25, 0.5, 1.0), seed=0):
+    """Held-out AUROC of the linear baseline as the training set grows."""
+    rng = np.random.RandomState(seed)
+    rows = [(n := int(f * len(train_idx)), linear_auroc(X, y, rng.permutation(train_idx)[:n], val_idx))
+            for f in fracs]
+    return pd.DataFrame(rows, columns=["n_train", "AUROC"])
