@@ -14,7 +14,7 @@ training:
 
 paths:
   csv_path: processed_movie_data.csv
-  graph_path: movie_graph-JACCARD-60.pkl
+  graph_path: graphs/movie_graph-JACCARD-60.pkl
   checkpoint_dir: checkpoints
   artifacts_dir: artifacts
   latest_model: latest.pt
