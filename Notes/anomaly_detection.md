@@ -82,7 +82,7 @@ node_id  film        label
 
 ## Anomaly model architecture
 
-This section describes the model assuming the graph has already been built and handed to it. It walks from the structure of that input all the way to the final list of detected sleepers.
+This section describes the model assuming the graph has already been built and handed to it.
 
 **1. The input graph.** The model receives one attributed graph.
 
