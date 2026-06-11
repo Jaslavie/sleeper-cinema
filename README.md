@@ -56,10 +56,17 @@ python src/train.py
 
 ## Architecture
 
-Beforehand, we will construct the film attribution graph.
+Beforehand, we construct the film attribution graph. This graph is constructed from the dataset and then used to compare each film against similar films.
 
-1. **Anomaly detection**: We use a Variational Graph Autoencoder to learn the latent gaussian of each film and reconstructs the graph. Here, the films are the "nodes" while features like genre act as the "edges" connecting the nodes. We detect films that have a high reconstruction error, thus falling out of the success manifold.
-2. **Pattern recognition**: We use a simple HDBSCAN (Hierarchical Density-Based Spatial Clustering of Applications with Noise) Clustering approach to extract trend clusters from the VGAE latent embeddings.
+1. **Graph construction**: We connect movies whose genre profiles overlap by at least 60% Jaccard similarity. Each movie is a node, and its first-degree neighbors are its closest peer films.
+
+2. **Success labeling**: We define a sleeper as a film whose budget-adjusted gross is in the top 10% relative to its graph neighbors. This makes success peer-relative instead of only box-office absolute.
+
+3. **Unary scoring**: We train a gradient boosted tree on pre-release features only. This gives each film an individual sleeper score before considering its neighbors.
+
+4. **Graph smoothing**: We run mean-field inference over the graph so similar films can influence each other's sleeper probability. Known training labels stay fixed, and validation films receive final ranked scores.
+
+**Run:** `python -m src.model`. Rankings are written to `artifacts/crf_ranked.csv`.
 
 ## References
 
