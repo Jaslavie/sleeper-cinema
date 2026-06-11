@@ -15,12 +15,12 @@ from torch.nn.utils.rnn import pad_sequence
 from omegaconf import DictConfig
 from hydra import initialize, compose
 import hydra
-# from sklearn.metrics import average_precision_score, roc_auc_score
 
 from src.gnc import GCNEncoder
 from src.outlier_generator import OutlierGenerator, compute_loss
 
 from src.utils import resolve_device, load_processed_movie_data, load_graph
+from src.evaluate import run_evaluation, evaluate_final
 
 class AnomalyClassifier(nn.Module):
     """
@@ -225,16 +225,32 @@ def train(cfg: DictConfig):
         # collect checkpoints at the end of each epoch
         torch.save(checkpoint_payload, Path(cfg.paths.checkpoint_dir) / cfg.paths.epoch_model_pattern.format(epoch=epoch))
 
+        eval_metrics = run_evaluation(model, X, edge_index, df, val_indices)
+        print(f"\tauroc={eval_metrics['auroc']:.4f} auprc={eval_metrics['auprc']:.4f} p@10={eval_metrics['precision_at_10']:.4f} p@50={eval_metrics['precision_at_50']:.4f} p@100={eval_metrics['precision_at_100']:.4f}")
+
         # log epoch metrics to wandb
         wandb.log({
             "train/epoch_loss": avg_train_loss,
             "val/epoch_loss": avg_val_loss,
-            # TODO: Add anomaly metrics
-            # "val/anomaly_auroc": val_auroc,
-            # "val/anomaly_auprc": val_auprc,
+            "val/anomaly_auroc":  eval_metrics["auroc"],
+            "val/anomaly_auprc":  eval_metrics["auprc"],
+            "val/precision_at_10":  eval_metrics.get("precision_at_10", float("nan")),
+            "val/precision_at_50":  eval_metrics.get("precision_at_50", float("nan")),
+            "val/precision_at_100": eval_metrics.get("precision_at_100", float("nan")),
             "batch_size": cfg.training.batch_size,
             "epoch": epoch,
         })
+
+    print("\nTraining complete, running final evaluation on best checkpoint")
+    final_metrics = evaluate_final(model, X, edge_index, df, cfg, device)
+    wandb.log({
+        "final/auroc": final_metrics["auroc"],
+        "final/auprc": final_metrics["auprc"],
+        "final/precision_at_10": final_metrics.get("precision_at_10", float("nan")),
+        "final/precision_at_50": final_metrics.get("precision_at_50", float("nan")),
+        "final/precision_at_100": final_metrics.get("precision_at_100", float("nan")),
+        "final/sleeper_pct_in_top20": final_metrics.get("sanity/sleeper_pct_in_top20", float("nan")),
+    })
 
 if __name__ == "__main__":
     train()
